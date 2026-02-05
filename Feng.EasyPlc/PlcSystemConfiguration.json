@@ -1,0 +1,29 @@
+{
+  "DeviceConfigurations": [
+    {
+      "Name": "TestPLC",
+      "IPAddress": "1",
+      "Port": 502,
+      "Protocol": "ModbusTcp",
+      "IsEnabled": true
+    }
+  ],
+  "DataPoints": [
+    {
+      "PlcDeviceName": "TestPLC",
+      "GroupName": "",
+      "Name": "读16",
+      "Address": "16"
+    }
+  ],
+  "AxisConfigurations": [
+    {
+      "PlcDeviceName": "TestPLC",
+      "AxisNumber": 1,
+      "Name": "X",
+      "CurrentPositionAddress": "100",
+      "JogAddress": "101",
+      "OriginAddress": "105"
+    }
+  ]
+}
