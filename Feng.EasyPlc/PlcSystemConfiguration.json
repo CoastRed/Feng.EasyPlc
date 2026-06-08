@@ -23,7 +23,10 @@
       "Name": "X",
       "CurrentPositionAddress": "100",
       "JogAddress": "101",
-      "OriginAddress": "105"
+      "OriginAddress": "105",
+      "Properties": {
+        "自定义属性": "自定义属性值"
+      }
     }
   ]
 }
