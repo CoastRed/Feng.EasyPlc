@@ -8,6 +8,7 @@ public class PlcAxisConfiguration
     public string? CurrentPositionAddress { get; set; }
     public string? JogAddress { get; set; }
     public string? OriginAddress { get; set; }
+    public string? ClearAlarmAddress { get; set; }
 
     public Dictionary<string, string> Properties { get; set; } = new Dictionary<string, string>();
 

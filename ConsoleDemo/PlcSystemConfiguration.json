@@ -1,37 +1,29 @@
 {
   "DeviceConfigurations": [
     {
-      "Name": "TestPLC",
-      "IPAddress": "1",
+      "Name": "MainPLC",
+      "IPAddress": "127.0.0.1",
       "Port": 502,
       "Protocol": "HSL:ModbusTcp",
-      "TimeOut": 1000,
-      "IsEnabled": true,
-      "Properties": {
-        "自定义属性": "自定义属性值"
-      }
+      "IsEnabled": true
     }
   ],
   "PointConfigurations": [
     {
-      "PlcDeviceName": "TestPLC",
+      "PlcDeviceName": "MainPLC",
       "GroupName": "",
-      "Name": "读16",
-      "Address": "16",
-      "Properties": {
-        "自定义属性": "自定义属性值"
-      }
+      "Name": "设备初始化",
+      "Address": "200"
     }
   ],
   "AxisConfigurations": [
     {
-      "PlcDeviceName": "TestPLC",
+      "PlcDeviceName": "MainPLC",
       "AxisNumber": 1,
       "Name": "X",
       "CurrentPositionAddress": "100",
       "JogAddress": "101",
       "OriginAddress": "105",
-      "ClearAlarmAddress": "106",
       "Properties": {
         "自定义属性": "自定义属性值"
       }

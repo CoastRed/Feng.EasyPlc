@@ -1,6 +1,6 @@
 ﻿namespace Feng.EasyPlc.Models;
 
-public class PlcDataPoint
+public class PlcPointConfiguration
 {
     /// <summary>
     /// PLC名称

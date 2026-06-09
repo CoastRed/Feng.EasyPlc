@@ -6,14 +6,14 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<LangVersion>preview</LangVersion>
-		<Version>1.0.0.5</Version>
+		<Version>1.0.0.6</Version>
 		<Authors>CoastRed</Authors>
 		<PackageProjectUrl></PackageProjectUrl>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<RepositoryUrl>https://github.com/CoastRed/Feng.EasyPlc</RepositoryUrl>
 		<Description></Description>
 		<PackageIcon></PackageIcon>
-		<PackageReleaseNotes>增加成功操作的日志，增加实体配置类的自定义属性</PackageReleaseNotes>
+		<PackageReleaseNotes>优化PlcManager，增加初始化时自定义PLC协议的支持，增加对所有HSL支持的协议的间接支持</PackageReleaseNotes>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -39,7 +39,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<None Include="PlcSystemConfiguration.json" Pack="true" PackagePath="build" />
+		<Content Include="PlcSystemConfiguration.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<Pack>true</Pack>
+			<PackagePath>contentFiles\any\any\</PackagePath>
+			<BuildAction>Content</BuildAction>
+		</Content>
 	</ItemGroup>
 
 </Project>

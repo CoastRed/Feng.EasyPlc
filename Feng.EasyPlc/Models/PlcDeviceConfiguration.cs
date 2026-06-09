@@ -1,22 +1,18 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Feng.EasyPlc.Models;
+﻿namespace Feng.EasyPlc.Models;
 
 public enum PlcProtocol
 {
     ModbusTcp,
 }
 
-public class PlcConfiguration
+public class PlcDeviceConfiguration
 {
     public string Name { get; set; } = string.Empty;
     public string IPAddress { get; set; } = string.Empty;
     public int Port { get; set; }
-    public PlcProtocol Protocol { get; set; } = PlcProtocol.ModbusTcp;
+    public int TimeOut { get; set; } = 1000;
+    public string Protocol { get; set; } = "HSL:ModbusTcp";
     public bool IsEnabled { get; set; } = true;
     public Dictionary<string, string> Properties { get; set; } = new Dictionary<string, string>();
+
 }

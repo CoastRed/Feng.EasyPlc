@@ -2,6 +2,7 @@
 using Feng.EasyPlc.Contracts;
 using Feng.EasyPlc.Extensions;
 using Feng.EasyPlc.Models;
+using Feng.EasyPlc.Protocol;
 using Newtonsoft.Json;
 using NLog;
 
@@ -9,48 +10,48 @@ namespace Feng.EasyPlc.Services;
 
 public class PlcManager
 {
+    protected readonly ILogger? _logger;
 
-    private readonly Dictionary<PlcConfiguration, IPlcDevice> _configurationDeviceMap = new Dictionary<PlcConfiguration, IPlcDevice>();
-    private readonly ILogger? _logger;
+    public Dictionary<PlcDeviceConfiguration, IPlcDevice> ConfigurationDeviceMap { get; protected set; } = new Dictionary<PlcDeviceConfiguration, IPlcDevice>();
+    public PlcSystemConfiguration PlcSystemConfig { get; protected set; } = new PlcSystemConfiguration();
 
-    private PlcSystemConfiguration PlcSystemConfig { get; set; } = new PlcSystemConfiguration();
-    public List<PlcDataPoint> PlcDataPoints => this.PlcSystemConfig.DataPoints;
+    public List<PlcDeviceConfiguration> PlcDeviceConfigurations => this.PlcSystemConfig.DeviceConfigurations;
+    public List<PlcPointConfiguration> PlcPointConfigurations => this.PlcSystemConfig.PointConfigurations;
     public List<PlcAxisConfiguration> PlcAxisConfigurations => this.PlcSystemConfig.AxisConfigurations;
 
-    public IPlcDevice this[string plcName] => _configurationDeviceMap.First(x => x.Key.Name == plcName).Value;
-    public IPlcDevice this[PlcDataPoint point] => _configurationDeviceMap.First(x => x.Key.Name == point.PlcDeviceName).Value;
-    public IPlcDevice this[PlcAxisConfiguration axisConfiguration] => _configurationDeviceMap.First(x => x.Key.Name == axisConfiguration.PlcDeviceName).Value;
+    #region 索引器
 
-    public PlcManager(ILogger? logger)
+    public virtual IPlcDevice this[string plcName] => ConfigurationDeviceMap.First(x => x.Key.Name == plcName).Value;
+    public virtual IPlcDevice this[PlcPointConfiguration pointConfiguration] => ConfigurationDeviceMap.First(x => x.Key.Name == pointConfiguration.PlcDeviceName).Value;
+    public virtual IPlcDevice this[PlcAxisConfiguration axisConfiguration] => ConfigurationDeviceMap.First(x => x.Key.Name == axisConfiguration.PlcDeviceName).Value;
+
+    #endregion
+
+    public PlcManager(ILogger? logger = null)
     {
         _logger = logger;
         this.PlcSystemConfig = this.LoadPlcSystemConfiguration();
-        this.InitPLC();
+        InitPLC(PlcDeviceConfigurations);
     }
 
-    public PlcManager(List<PlcConfiguration> config, ILogger? logger = null) : this(logger)
+    public PlcManager(PlcSystemConfiguration config, ILogger? logger = null)
     {
-        this.PlcSystemConfig.DeviceConfigurations = config ?? throw new ArgumentNullException(nameof(config));
+        this.PlcSystemConfig = config ?? throw new ArgumentNullException(nameof(config));
+        _logger = logger;
+        InitPLC(PlcDeviceConfigurations);
     }
 
-    public virtual void InitPLC()
+    protected virtual void InitPLC(List<PlcDeviceConfiguration> configurations)
     {
-        if (this.PlcSystemConfig.DeviceConfigurations == null)
+        foreach (var plcConfig in configurations)
         {
-            throw new ArgumentException("Plc configuration is null.");
-        }
-        if (this.PlcSystemConfig.DeviceConfigurations.Any(s => string.IsNullOrWhiteSpace(s.Name) || string.IsNullOrWhiteSpace(s.IPAddress)))
-        {
-            throw new ArgumentException("PLC configuration must have a valid Name and IP.");
-        }
-        foreach (var plcConfig in this.PlcSystemConfig.DeviceConfigurations)
-        {
+            //TDevice device = new HslPlcDevice(plcConfig, _logger);
             if (plcConfig.IsEnabled)
             {
                 switch (plcConfig.Protocol)
                 {
-                    case Models.PlcProtocol.ModbusTcp:
-                        _configurationDeviceMap.Add(plcConfig, new Protocol.ModbusTcp(plcConfig, _logger));
+                    case "HSL:ModbusTcp":
+                        ConfigurationDeviceMap.Add(plcConfig, new HslPlcDevice(plcConfig, _logger));
                         break;
                     default:
                         throw new NotSupportedException($"Protocol {plcConfig.Protocol} is not supported.");
@@ -63,29 +64,26 @@ public class PlcManager
         }
     }
 
+
     public virtual PlcSystemConfiguration LoadPlcSystemConfiguration()
     {
-        //string filePath = "PlcSystemConfiguration.json";
-
-        //IConfiguration configuration = new ConfigurationBuilder()
-        //    .SetBasePath(AppContext.BaseDirectory)
-        //    .AddJsonFile(filePath, optional: false, reloadOnChange: true)
-        //    .Build();
-        //return configuration.Get<PlcSystemConfiguration>() ?? new PlcSystemConfiguration();
-
         string json = File.ReadAllText("PlcSystemConfiguration.json");
-        return JsonConvert.DeserializeObject<PlcSystemConfiguration>(json) ?? new PlcSystemConfiguration();
+        var configuration = JsonConvert.DeserializeObject<PlcSystemConfiguration>(json) ?? new PlcSystemConfiguration();
+        if (configuration == null)
+        {
+            throw new ArgumentException("Plc configuration is null.");
+        }
+        if (configuration.DeviceConfigurations.Any(s => string.IsNullOrWhiteSpace(s.Name) || string.IsNullOrWhiteSpace(s.IPAddress)))
+        {
+            throw new ArgumentException("PLC configuration must have a valid Name and IP.");
+        }
+        return configuration;
 
     }
 
-    public PlcSystemConfiguration GetPlcSystemConfiguration()
+    public virtual PlcPointConfiguration GetPlcPointConfiguration(string name)
     {
-        return this.PlcSystemConfig;
-    }
-
-    public virtual PlcDataPoint GetPlcDataPoint(string name)
-    {
-        return this.PlcDataPoints.Single(s => s.Name == name) ?? throw new ArgumentNullException(nameof(name), $"PlcDataPoint with name {name} not found.");
+        return this.PlcPointConfigurations.Single(s => s.Name == name) ?? throw new ArgumentNullException(nameof(name), $"PlcPointConfiguration with name {name} not found.");
     }
 
     public virtual PlcAxisConfiguration GetPlcAxisConfiguration(string name)
@@ -98,10 +96,12 @@ public class PlcManager
         return this.PlcAxisConfigurations.Single(s => s.AxisNumber == axisNumber) ?? throw new ArgumentNullException(nameof(axisNumber), $"AxisConfiguration with AxisNumber {axisNumber} not found.");
     }
 
+
+
     public virtual bool Connect(out string error)
     {
         error = string.Empty;
-        foreach (var plc in _configurationDeviceMap.Values)
+        foreach (var plc in ConfigurationDeviceMap.Values)
         {
             if (plc.Connect() == false)
             {
@@ -114,7 +114,7 @@ public class PlcManager
     public virtual async Task<(bool, string)> ConnectAsync()
     {
         string error = string.Empty;
-        foreach (var plc in _configurationDeviceMap.Values)
+        foreach (var plc in ConfigurationDeviceMap.Values)
         {
             if ((await plc.ConnectAsync()) == false)
             {
@@ -126,7 +126,7 @@ public class PlcManager
 
     public virtual bool Disconnect()
     {
-        foreach (var plc in _configurationDeviceMap.Values)
+        foreach (var plc in ConfigurationDeviceMap.Values)
         {
             plc.DisConnect();
         }
@@ -135,7 +135,7 @@ public class PlcManager
 
     public virtual async Task<bool> DisconnectAsync()
     {
-        foreach (var plc in _configurationDeviceMap.Values)
+        foreach (var plc in ConfigurationDeviceMap.Values)
         {
             await plc.DisConnectAsync();
         }
@@ -149,24 +149,24 @@ public class PlcManager
 
     public virtual short? ReadInt16(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.ReadInt16(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.ReadInt16(point);
     }
 
-    public virtual short? ReadInt16(PlcDataPoint dataPoint)
+    public virtual short? ReadInt16(PlcPointConfiguration point)
     {
-        return this[dataPoint].ReadInt16(dataPoint.Address);
+        return this[point].ReadInt16(point.Address);
     }
 
     public virtual async Task<short?> ReadInt16Async(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.ReadInt16Async(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.ReadInt16Async(point);
     }
 
-    public virtual async Task<short?> ReadInt16Async(PlcDataPoint dataPoint)
+    public virtual async Task<short?> ReadInt16Async(PlcPointConfiguration point)
     {
-        return await this[dataPoint].ReadInt16Async(dataPoint.Address);
+        return await this[point].ReadInt16Async(point.Address);
     }
 
 
@@ -174,191 +174,191 @@ public class PlcManager
 
     public virtual ushort? ReadUInt16(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.ReadUInt16(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.ReadUInt16(point);
     }
 
-    public virtual ushort? ReadUInt16(PlcDataPoint dataPoint)
+    public virtual ushort? ReadUInt16(PlcPointConfiguration point)
     {
-        return this[dataPoint].ReadUInt16(dataPoint.Address);
+        return this[point].ReadUInt16(point.Address);
     }
 
     public virtual async Task<ushort?> ReadUInt16Async(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.ReadUInt16Async(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.ReadUInt16Async(point);
     }
 
-    public virtual async Task<ushort?> ReadUInt16Async(PlcDataPoint dataPoint)
+    public virtual async Task<ushort?> ReadUInt16Async(PlcPointConfiguration point)
     {
-        return await this[dataPoint].ReadUInt16Async(dataPoint.Address);
+        return await this[point].ReadUInt16Async(point.Address);
     }
 
 
 
     public virtual int? ReadInt32(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.ReadInt32(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.ReadInt32(point);
     }
 
-    public virtual int? ReadInt32(PlcDataPoint dataPoint)
+    public virtual int? ReadInt32(PlcPointConfiguration point)
     {
-        return this[dataPoint].ReadInt32(dataPoint.Address);
+        return this[point].ReadInt32(point.Address);
     }
 
     public virtual async Task<int?> ReadInt32Async(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.ReadInt32Async(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.ReadInt32Async(point);
     }
 
-    public virtual async Task<int?> ReadInt32Async(PlcDataPoint dataPoint)
+    public virtual async Task<int?> ReadInt32Async(PlcPointConfiguration point)
     {
-        return await this[dataPoint].ReadInt32Async(dataPoint.Address);
+        return await this[point].ReadInt32Async(point.Address);
     }
 
 
 
     public virtual uint? ReadUInt32(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.ReadUInt32(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.ReadUInt32(point);
     }
 
-    public virtual uint? ReadUInt32(PlcDataPoint dataPoint)
+    public virtual uint? ReadUInt32(PlcPointConfiguration point)
     {
-        return this[dataPoint].ReadUInt32(dataPoint.Address);
+        return this[point].ReadUInt32(point.Address);
     }
 
     public virtual async Task<uint?> ReadUInt32Async(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.ReadUInt32Async(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.ReadUInt32Async(point);
     }
 
-    public virtual async Task<uint?> ReadUInt32Async(PlcDataPoint dataPoint)
+    public virtual async Task<uint?> ReadUInt32Async(PlcPointConfiguration point)
     {
-        return await this[dataPoint].ReadUInt32Async(dataPoint.Address);
+        return await this[point].ReadUInt32Async(point.Address);
     }
 
 
 
     public virtual long? ReadInt64(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.ReadInt64(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.ReadInt64(point);
     }
 
-    public virtual long? ReadInt64(PlcDataPoint dataPoint)
+    public virtual long? ReadInt64(PlcPointConfiguration point)
     {
-        return this[dataPoint].ReadInt64(dataPoint.Address);
+        return this[point].ReadInt64(point.Address);
     }
 
     public virtual async Task<long?> ReadInt64Async(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.ReadInt64Async(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.ReadInt64Async(point);
     }
 
-    public virtual async Task<long?> ReadInt64Async(PlcDataPoint dataPoint)
+    public virtual async Task<long?> ReadInt64Async(PlcPointConfiguration point)
     {
-        return await this[dataPoint].ReadInt64Async(dataPoint.Address);
+        return await this[point].ReadInt64Async(point.Address);
     }
 
 
 
     public virtual ulong? ReadUInt64(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.ReadUInt64(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.ReadUInt64(point);
     }
 
-    public virtual ulong? ReadUInt64(PlcDataPoint dataPoint)
+    public virtual ulong? ReadUInt64(PlcPointConfiguration point)
     {
-        return this[dataPoint].ReadUInt64(dataPoint.Address);
+        return this[point].ReadUInt64(point.Address);
     }
 
     public virtual async Task<ulong?> ReadUInt64Async(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.ReadUInt64Async(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.ReadUInt64Async(point);
     }
 
-    public virtual async Task<ulong?> ReadUInt64Async(PlcDataPoint dataPoint)
+    public virtual async Task<ulong?> ReadUInt64Async(PlcPointConfiguration point)
     {
-        return await this[dataPoint].ReadUInt64Async(dataPoint.Address);
+        return await this[point].ReadUInt64Async(point.Address);
     }
 
 
     public virtual bool? ReadBool(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.ReadBool(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.ReadBool(point);
     }
 
-    public virtual bool? ReadBool(PlcDataPoint dataPoint)
+    public virtual bool? ReadBool(PlcPointConfiguration point)
     {
-        return this[dataPoint].ReadBool(dataPoint.Address);
+        return this[point].ReadBool(point.Address);
     }
 
     public virtual async Task<bool?> ReadBoolAsync(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.ReadBoolAsync(dataPoint);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.ReadBoolAsync(point);
     }
 
-    public virtual async Task<bool?> ReadBoolAsync(PlcDataPoint dataPoint)
+    public virtual async Task<bool?> ReadBoolAsync(PlcPointConfiguration point)
     {
-        return await this[dataPoint].ReadBoolAsync(dataPoint.Address);
+        return await this[point].ReadBoolAsync(point.Address);
     }
 
 
 
     public virtual string? ReadString(string name, ushort length)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.ReadString(dataPoint, length);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.ReadString(point, length);
     }
 
     public virtual string? ReadString(string name, ushort length, Encoding encoding)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.ReadString(dataPoint, length, encoding);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.ReadString(point, length, encoding);
     }
 
-    public virtual string? ReadString(PlcDataPoint dataPoint, ushort length)
+    public virtual string? ReadString(PlcPointConfiguration point, ushort length)
     {
-        IPlcDevice s = this[dataPoint];
+        IPlcDevice s = this[point];
 
-        return this[dataPoint].ReadString(dataPoint.Address, length);
+        return this[point].ReadString(point.Address, length);
     }
 
-    public virtual string? ReadString(PlcDataPoint dataPoint, ushort length, Encoding encoding)
+    public virtual string? ReadString(PlcPointConfiguration point, ushort length, Encoding encoding)
     {
-        return this[dataPoint].ReadString(dataPoint.Address, length, encoding);
+        return this[point].ReadString(point.Address, length, encoding);
     }
 
     public virtual async Task<string?> ReadStringAsync(string name, ushort length)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.ReadStringAsync(dataPoint, length);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.ReadStringAsync(point, length);
     }
 
-    public virtual async Task<string?> ReadStringAsync(PlcDataPoint dataPoint, ushort length)
+    public virtual async Task<string?> ReadStringAsync(PlcPointConfiguration point, ushort length)
     {
-        return await this[dataPoint].ReadStringAsync(dataPoint.Address, length);
+        return await this[point].ReadStringAsync(point.Address, length);
     }
 
     public virtual async Task<string?> ReadStringAsync(string name, ushort length, Encoding encoding)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.ReadStringAsync(dataPoint, length, encoding);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.ReadStringAsync(point, length, encoding);
     }
 
-    public virtual async Task<string?> ReadStringAsync(PlcDataPoint dataPoint, ushort length, Encoding encoding)
+    public virtual async Task<string?> ReadStringAsync(PlcPointConfiguration point, ushort length, Encoding encoding)
     {
-        return await this[dataPoint].ReadStringAsync(dataPoint.Address, length, encoding);
+        return await this[point].ReadStringAsync(point.Address, length, encoding);
     }
 
     #endregion
@@ -368,200 +368,200 @@ public class PlcManager
 
     public virtual bool WriteInt16(string name, int value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].WriteInt16(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].WriteInt16(point.Address, value);
     }
 
-    public virtual bool WriteInt16(PlcDataPoint dataPoint, int value)
+    public virtual bool WriteInt16(PlcPointConfiguration point, int value)
     {
-        return this[dataPoint].WriteInt16(dataPoint.Address, value);
+        return this[point].WriteInt16(point.Address, value);
     }
 
     public virtual async Task<bool> WriteInt16Async(string name, int value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WriteInt16Async(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WriteInt16Async(point.Address, value);
     }
 
-    public virtual async Task<bool> WriteInt16Async(PlcDataPoint dataPoint, int value)
+    public virtual async Task<bool> WriteInt16Async(PlcPointConfiguration point, int value)
     {
-        return await this[dataPoint].WriteInt16Async(dataPoint.Address, value);
+        return await this[point].WriteInt16Async(point.Address, value);
     }
 
     public virtual bool Write(string name, short value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Write(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Write(point.Address, value);
     }
 
-    public virtual bool Write(PlcDataPoint dataPoint, short value)
+    public virtual bool Write(PlcPointConfiguration point, short value)
     {
-        return this[dataPoint].Write(dataPoint.Address, value);
+        return this[point].Write(point.Address, value);
     }
 
     public virtual bool Write(string name, ushort value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Write(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Write(point.Address, value);
     }
 
-    public virtual bool Write(PlcDataPoint dataPoint, ushort value)
+    public virtual bool Write(PlcPointConfiguration point, ushort value)
     {
-        return this[dataPoint].Write(dataPoint.Address, value);
+        return this[point].Write(point.Address, value);
     }
 
     public virtual bool Write(string name, int value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Write(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Write(point.Address, value);
     }
 
-    public virtual bool Write(PlcDataPoint dataPoint, int value)
+    public virtual bool Write(PlcPointConfiguration point, int value)
     {
-        return this[dataPoint].Write(dataPoint.Address, value);
+        return this[point].Write(point.Address, value);
     }
 
     public virtual bool Write(string name, uint value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Write(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Write(point.Address, value);
     }
 
-    public virtual bool Write(PlcDataPoint dataPoint, uint value)
+    public virtual bool Write(PlcPointConfiguration point, uint value)
     {
-        return this[dataPoint].Write(dataPoint.Address, value);
+        return this[point].Write(point.Address, value);
     }
 
     public virtual bool Write(string name, long value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Write(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Write(point.Address, value);
     }
 
-    public virtual bool Write(PlcDataPoint dataPoint, long value)
+    public virtual bool Write(PlcPointConfiguration point, long value)
     {
-        return this[dataPoint].Write(dataPoint.Address, value);
+        return this[point].Write(point.Address, value);
     }
 
     public virtual bool Write(string name, ulong value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Write(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Write(point.Address, value);
     }
 
-    public virtual bool Write(PlcDataPoint dataPoint, ulong value)
+    public virtual bool Write(PlcPointConfiguration point, ulong value)
     {
-        return this[dataPoint].Write(dataPoint.Address, value);
+        return this[point].Write(point.Address, value);
     }
 
     public virtual bool Write(string name, bool value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Write(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Write(point.Address, value);
     }
 
-    public virtual bool Write(PlcDataPoint dataPoint, bool value)
+    public virtual bool Write(PlcPointConfiguration point, bool value)
     {
-        return this[dataPoint].Write(dataPoint.Address, value);
+        return this[point].Write(point.Address, value);
     }
 
     public virtual bool Write(string name, string value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Write(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Write(point.Address, value);
     }
 
-    public virtual bool Write(PlcDataPoint dataPoint, string value)
+    public virtual bool Write(PlcPointConfiguration point, string value)
     {
-        return this[dataPoint].Write(dataPoint.Address, value);
+        return this[point].Write(point.Address, value);
     }
 
     public virtual async Task<bool> WriteAsync(string name, short value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
-    public virtual async Task<bool> WriteAsync(PlcDataPoint dataPoint, short value)
+    public virtual async Task<bool> WriteAsync(PlcPointConfiguration point, short value)
     {
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
     public virtual async Task<bool> WriteAsync(string name, ushort value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
-    public virtual async Task<bool> WriteAsync(PlcDataPoint dataPoint, ushort value)
+    public virtual async Task<bool> WriteAsync(PlcPointConfiguration point, ushort value)
     {
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
     public virtual async Task<bool> WriteAsync(string name, int value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
-    public virtual async Task<bool> WriteAsync(PlcDataPoint dataPoint, int value)
+    public virtual async Task<bool> WriteAsync(PlcPointConfiguration point, int value)
     {
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
     public virtual async Task<bool> WriteAsync(string name, uint value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
-    public virtual async Task<bool> WriteAsync(PlcDataPoint dataPoint, uint value)
+    public virtual async Task<bool> WriteAsync(PlcPointConfiguration point, uint value)
     {
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
     public virtual async Task<bool> WriteAsync(string name, long value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
-    public virtual async Task<bool> WriteAsync(PlcDataPoint dataPoint, long value)
+    public virtual async Task<bool> WriteAsync(PlcPointConfiguration point, long value)
     {
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
     public virtual async Task<bool> WriteAsync(string name, ulong value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
-    public virtual async Task<bool> WriteAsync(PlcDataPoint dataPoint, ulong value)
+    public virtual async Task<bool> WriteAsync(PlcPointConfiguration point, ulong value)
     {
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
     public virtual async Task<bool> WriteAsync(string name, bool value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
-    public virtual async Task<bool> WriteAsync(PlcDataPoint dataPoint, bool value)
+    public virtual async Task<bool> WriteAsync(PlcPointConfiguration point, bool value)
     {
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
     public virtual async Task<bool> WriteAsync(string name, string value)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
-    public virtual async Task<bool> WriteAsync(PlcDataPoint dataPoint, string value)
+    public virtual async Task<bool> WriteAsync(PlcPointConfiguration point, string value)
     {
-        return await this[dataPoint].WriteAsync(dataPoint.Address, value);
+        return await this[point].WriteAsync(point.Address, value);
     }
 
     #endregion
@@ -572,178 +572,178 @@ public class PlcManager
 
     public bool WaitInt16(string name, int value, int timeOut = -1, int readInterval = 100)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.WaitInt16(dataPoint, value, timeOut, readInterval);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.WaitInt16(point, value, timeOut, readInterval);
     }
-    public bool WaitInt16(PlcDataPoint dataPoint, int value, int timeOut = -1, int readInterval = 100)
+    public bool WaitInt16(PlcPointConfiguration point, int value, int timeOut = -1, int readInterval = 100)
     {
-        return this[dataPoint].Wait(dataPoint.Address, Convert.ToInt16(value), timeOut, readInterval);
+        return this[point].Wait(point.Address, Convert.ToInt16(value), timeOut, readInterval);
     }
 
     public virtual async Task<bool> WaitInt16Async(string name, short value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
     public virtual async Task<bool> WaitInt16Async(string name, int value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WaitAsync(dataPoint.Address, Convert.ToInt16(value), timeOut, readInterval, token);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WaitAsync(point.Address, Convert.ToInt16(value), timeOut, readInterval, token);
     }
 
     public bool Wait(string name, short value, int timeOut = -1, int readInterval = 100)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
-    public bool Wait(PlcDataPoint dataPoint, short value, int timeOut = -1, int readInterval = 100)
+    public bool Wait(PlcPointConfiguration point, short value, int timeOut = -1, int readInterval = 100)
     {
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
     public bool Wait(string name, ushort value, int timeOut = -1, int readInterval = 100)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
-    public bool Wait(PlcDataPoint dataPoint, ushort value, int timeOut = -1, int readInterval = 100)
+    public bool Wait(PlcPointConfiguration point, ushort value, int timeOut = -1, int readInterval = 100)
     {
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
     public bool Wait(string name, int value, int timeOut = -1, int readInterval = 100)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
-    public bool Wait(PlcDataPoint dataPoint, int value, int timeOut = -1, int readInterval = 100)
+    public bool Wait(PlcPointConfiguration point, int value, int timeOut = -1, int readInterval = 100)
     {
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
     public bool Wait(string name, uint value, int timeOut = -1, int readInterval = 100)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
-    public bool Wait(PlcDataPoint dataPoint, uint value, int timeOut = -1, int readInterval = 100)
+    public bool Wait(PlcPointConfiguration point, uint value, int timeOut = -1, int readInterval = 100)
     {
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
     public bool Wait(string name, long value, int timeOut = -1, int readInterval = 100)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
-    public bool Wait(PlcDataPoint dataPoint, long value, int timeOut = -1, int readInterval = 100)
+    public bool Wait(PlcPointConfiguration point, long value, int timeOut = -1, int readInterval = 100)
     {
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
     public bool Wait(string name, ulong value, int timeOut = -1, int readInterval = 100)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
-    public bool Wait(PlcDataPoint dataPoint, ulong value, int timeOut = -1, int readInterval = 100)
+    public bool Wait(PlcPointConfiguration point, ulong value, int timeOut = -1, int readInterval = 100)
     {
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
     public bool Wait(string name, bool value, int timeOut = -1, int readInterval = 100)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        var point = this.GetPlcPointConfiguration(name);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
-    public bool Wait(PlcDataPoint dataPoint, bool value, int timeOut = -1, int readInterval = 100)
+    public bool Wait(PlcPointConfiguration point, bool value, int timeOut = -1, int readInterval = 100)
     {
-        return this[dataPoint].Wait(dataPoint.Address, value, timeOut, readInterval);
+        return this[point].Wait(point.Address, value, timeOut, readInterval);
     }
 
     public virtual async Task<bool> WaitAsync(string name, short value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
-    public virtual async Task<bool> WaitAsync(PlcDataPoint dataPoint, short value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
+    public virtual async Task<bool> WaitAsync(PlcPointConfiguration point, short value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
     public virtual async Task<bool> WaitAsync(string name, ushort value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
-    public virtual async Task<bool> WaitAsync(PlcDataPoint dataPoint, ushort value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
+    public virtual async Task<bool> WaitAsync(PlcPointConfiguration point, ushort value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
     public virtual async Task<bool> WaitAsync(string name, int value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
-    public virtual async Task<bool> WaitAsync(PlcDataPoint dataPoint, int value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
+    public virtual async Task<bool> WaitAsync(PlcPointConfiguration point, int value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
     public virtual async Task<bool> WaitAsync(string name, uint value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
-    public virtual async Task<bool> WaitAsync(PlcDataPoint dataPoint, uint value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
+    public virtual async Task<bool> WaitAsync(PlcPointConfiguration point, uint value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
     public virtual async Task<bool> WaitAsync(string name, long value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
-    public virtual async Task<bool> WaitAsync(PlcDataPoint dataPoint, long value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
+    public virtual async Task<bool> WaitAsync(PlcPointConfiguration point, long value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
     public virtual async Task<bool> WaitAsync(string name, ulong value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
-    public virtual async Task<bool> WaitAsync(PlcDataPoint dataPoint, ulong value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
+    public virtual async Task<bool> WaitAsync(PlcPointConfiguration point, ulong value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
     public virtual async Task<bool> WaitAsync(string name, bool value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
-    public virtual async Task<bool> WaitAsync(PlcDataPoint dataPoint, bool value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
+    public virtual async Task<bool> WaitAsync(PlcPointConfiguration point, bool value, int timeOut = -1, int readInterval = 100, CancellationToken token = default)
     {
-        return await this[dataPoint].WaitAsync(dataPoint.Address, value, timeOut, readInterval, token);
+        return await this[point].WaitAsync(point.Address, value, timeOut, readInterval, token);
     }
 
     #endregion
@@ -753,46 +753,46 @@ public class PlcManager
 
     public virtual bool Set(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.WriteInt16(dataPoint, 1);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.WriteInt16(point, 1);
     }
 
-    public virtual bool Set(PlcDataPoint dataPoint)
+    public virtual bool Set(PlcPointConfiguration point)
     {
-        return this.WriteInt16(dataPoint, 1);
+        return this.WriteInt16(point, 1);
     }
 
     public virtual async Task<bool> SetAsync(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.WriteInt16Async(dataPoint, 1);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.WriteInt16Async(point, 1);
     }
 
-    public virtual async Task<bool> SetAsync(PlcDataPoint dataPoint)
+    public virtual async Task<bool> SetAsync(PlcPointConfiguration point)
     {
-        return await this.WriteInt16Async(dataPoint, 1);
+        return await this.WriteInt16Async(point, 1);
     }
 
     public virtual bool Reset(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return this.WriteInt16(dataPoint, 0);
+        var point = this.GetPlcPointConfiguration(name);
+        return this.WriteInt16(point, 0);
     }
 
-    public virtual bool Reset(PlcDataPoint dataPoint)
+    public virtual bool Reset(PlcPointConfiguration point)
     {
-        return this.WriteInt16(dataPoint, 0);
+        return this.WriteInt16(point, 0);
     }
 
     public virtual async Task<bool> ResetAsync(string name)
     {
-        var dataPoint = this.GetPlcDataPoint(name);
-        return await this.WriteInt16Async(dataPoint, 0);
+        var point = this.GetPlcPointConfiguration(name);
+        return await this.WriteInt16Async(point, 0);
     }
 
-    public virtual async Task<bool> ResetAsync(PlcDataPoint dataPoint)
+    public virtual async Task<bool> ResetAsync(PlcPointConfiguration point)
     {
-        return await this.WriteInt16Async(dataPoint, 0);
+        return await this.WriteInt16Async(point, 0);
     }
 
     #endregion
@@ -868,6 +868,34 @@ public class PlcManager
         var axis = this.GetPlcAxisConfiguration(axisNumber);
         ArgumentException.ThrowIfNullOrWhiteSpace(axis.CurrentPositionAddress, nameof(axis.CurrentPositionAddress));
         return await this[axis].ReadInt32Async(axis.CurrentPositionAddress);
+    }
+
+    public virtual bool ClearAlarm(string axisName, int value = 1)
+    {
+        var axis = this.GetPlcAxisConfiguration(axisName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(axis.ClearAlarmAddress, nameof(axis.ClearAlarmAddress));
+        return this[axis].WriteInt16(axis.ClearAlarmAddress, value);
+    }
+
+    public virtual bool ClearAlarm(int axisNumber, int value = 1)
+    {
+        var axis = this.GetPlcAxisConfiguration(axisNumber);
+        ArgumentException.ThrowIfNullOrWhiteSpace(axis.ClearAlarmAddress, nameof(axis.ClearAlarmAddress));
+        return this[axis].WriteInt16(axis.ClearAlarmAddress, value);
+    }
+
+    public virtual async Task<bool> ClearAlarmAsync(string axisName, int value = 1)
+    {
+        var axis = this.GetPlcAxisConfiguration(axisName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(axis.ClearAlarmAddress, nameof(axis.ClearAlarmAddress));
+        return await this[axis].WriteInt16Async(axis.ClearAlarmAddress, value);
+    }
+
+    public virtual async Task<bool> ClearAlarmAsync(int axisNumber, int value = 1)
+    {
+        var axis = this.GetPlcAxisConfiguration(axisNumber);
+        ArgumentException.ThrowIfNullOrWhiteSpace(axis.ClearAlarmAddress, nameof(axis.ClearAlarmAddress));
+        return await this[axis].WriteInt16Async(axis.ClearAlarmAddress, value);
     }
 
     #endregion
