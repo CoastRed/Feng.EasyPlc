@@ -23,7 +23,10 @@ dotnet add package Feng.EasyPlc
       "Port": 502,
       "Protocol": "HSL:ModbusTcp",
       "TimeOut": 1000,
-      "IsEnabled": true
+      "IsEnabled": true,
+      "Properties": {
+        "自定义属性": "自定义属性值"
+      }
     }
   ],
   "PointConfigurations": [
@@ -31,13 +34,19 @@ dotnet add package Feng.EasyPlc
       "PlcDeviceName": "PLC1",
       "GroupName": "温度",
       "Name": "传感器温度",
-      "Address": "40001"
+      "Address": "40001",
+      "Properties": {
+        "自定义属性": "自定义属性值"
+      }
     },
     {
       "PlcDeviceName": "PLC1",
       "GroupName": "状态",
       "Name": "运行状态",
-      "Address": "00001"
+      "Address": "00001",
+      "Properties": {
+        "自定义属性": "自定义属性值"
+      }
     }
   ],
   "AxisConfigurations": [
@@ -48,7 +57,10 @@ dotnet add package Feng.EasyPlc
       "CurrentPositionAddress": "40100",
       "JogAddress": "00010",
       "OriginAddress": "00011",
-      "ClearAlarmAddress": "00012"
+      "ClearAlarmAddress": "00012",
+      "Properties": {
+        "自定义属性": "自定义属性值"
+      }
     }
   ]
 }
