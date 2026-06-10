@@ -12,7 +12,7 @@ dotnet add package Feng.EasyPlc
 
 ### 2. 创建配置文件
 
-在项目根目录创建 `PlcSystemConfiguration.json` 文件：
+在项目根目录创建 `PlcSystemConfiguration.json` 文件，并改为内容和复制到输出目录：
 
 ```json
 {
@@ -26,7 +26,7 @@ dotnet add package Feng.EasyPlc
       "IsEnabled": true
     }
   ],
-  "DataPoints": [
+  "PointConfigurations": [
     {
       "PlcDeviceName": "PLC1",
       "GroupName": "温度",
@@ -139,19 +139,11 @@ Func<PlcDeviceConfiguration, IReadWriteDevice> deviceFactory = (config) =>
     return null;
 };
 
-// 创建 PLC 管理器时传入工厂函数
-var plcManager = new PlcManager(logger);
-
-// 或者使用 HslPlcDevice 直接创建
+// 可以使用 HslPlcDevice 直接创建
 var device = new HslPlcDevice(config, logger, deviceFactory);
-```
 
-继承PlcManager类，重写InitPLC方法，可以控制初始化的PLC协议，协议类需要继承IPlcDevice
 
-```csharp
-using HslCommunication.Core.Device;
-using HslCommunication.Profinet.Siemens;
-
+// 继承PlcManager类，重写InitPLC方法，可以控制初始化的PLC协议，协议类需要继承IPlcDevice
 public class Motion : PlcManager
 {
     public Motion(ILogger logger) : base(logger)
@@ -162,20 +154,17 @@ public class Motion : PlcManager
     //重写协议配置对应的规则
     protected override void InitPLC(List<PlcDeviceConfiguration> configurations)
     {
-        foreach (PlcDeviceConfiguration configuration in configurations)
+        if (configuration.Protocol == "HSL:ModbusTcp")
         {
-            if(configuration.Protocol == "HSL:ModbusTcp")
+            //自定义适配HSL所有支持的协议
+            return new HslPlcDevice(configuration, null, configuration =>
             {
-                //自定义适配HSL所有支持的协议
-                ConfigurationDeviceMap.Add(configuration, new HslPlcDevice(configuration, null, configuration =>
-                {
-                    return new HslCommunication.Profinet.Siemens.SiemensS7Net(HslCommunication.Profinet.Siemens.SiemensPLCS.S1200, configuration.IPAddress);
-                }));
-            }
-            else
-            {
-                throw new Exception("Not support protocol");
-            }
+                return new HslCommunication.Profinet.Siemens.SiemensS7Net(HslCommunication.Profinet.Siemens.SiemensPLCS.S1200, configuration.IPAddress);
+            });
+        }
+        else
+        {
+            throw new Exception("Not support protocol");
         }
     }
 
@@ -204,3 +193,4 @@ public class Motion : PlcManager
 - 修改配置文件节点DataPoints为PointConfigurations
 - 优化 PlcManager，增加初始化时自定义PLC协议的支持
 - 增加对所有 HSL 支持的协议的间接支持
+- 原生支持HSL的ModBusTCP协议

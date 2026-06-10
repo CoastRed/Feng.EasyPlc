@@ -1,5 +1,7 @@
 <Solution>
-  <Folder Name="/解决方案项/" />
+  <Folder Name="/解决方案项/">
+    <File Path="README.md" />
+  </Folder>
   <Project Path="ConsoleDemo/ConsoleDemo.csproj" Id="6486e99d-0830-40de-ae58-037bdfc33ff0" />
   <Project Path="Feng.EasyPlc/Feng.EasyPlc.csproj" />
 </Solution>

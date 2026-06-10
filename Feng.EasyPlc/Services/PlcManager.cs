@@ -31,36 +31,32 @@ public class PlcManager
     {
         _logger = logger;
         this.PlcSystemConfig = this.LoadPlcSystemConfiguration();
-        InitPLC(PlcDeviceConfigurations);
+        Initialize(PlcDeviceConfigurations);
     }
 
     public PlcManager(PlcSystemConfiguration config, ILogger? logger = null)
     {
-        this.PlcSystemConfig = config ?? throw new ArgumentNullException(nameof(config));
         _logger = logger;
-        InitPLC(PlcDeviceConfigurations);
+        this.PlcSystemConfig = config ?? throw new ArgumentNullException(nameof(config));
+        Initialize(PlcDeviceConfigurations);
     }
 
-    protected virtual void InitPLC(List<PlcDeviceConfiguration> configurations)
+    public void Initialize(List<PlcDeviceConfiguration> configurations)
     {
-        foreach (var plcConfig in configurations)
+        foreach (var configuration in configurations)
         {
-            //TDevice device = new HslPlcDevice(plcConfig, _logger);
-            if (plcConfig.IsEnabled)
-            {
-                switch (plcConfig.Protocol)
-                {
-                    case "HSL:ModbusTcp":
-                        ConfigurationDeviceMap.Add(plcConfig, new HslPlcDevice(plcConfig, _logger));
-                        break;
-                    default:
-                        throw new NotSupportedException($"Protocol {plcConfig.Protocol} is not supported.");
-                }
-            }
-            else
-            {
-                //_plcs.Add(plcConfig, new MockPLC());
-            }
+            ConfigurationDeviceMap.Add(configuration, InitPLC(configuration));
+        }
+    }
+
+    protected virtual IPlcDevice InitPLC(PlcDeviceConfiguration configuration)
+    {
+        switch (configuration.Protocol)
+        {
+            case "HSL:ModbusTcp":
+                return new HslPlcDevice(configuration, _logger);
+            default:
+                throw new NotSupportedException($"Protocol {configuration.Protocol} is not Supported.");
         }
     }
 

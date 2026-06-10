@@ -12,7 +12,7 @@ dotnet add package Feng.EasyPlc
 
 ### 2. 创建配置文件
 
-在项目根目录创建 `PlcSystemConfiguration.json` 文件：
+在项目根目录创建 `PlcSystemConfiguration.json` 文件，并改为内容和复制到输出目录：
 
 ```json
 {
@@ -26,7 +26,7 @@ dotnet add package Feng.EasyPlc
       "IsEnabled": true
     }
   ],
-  "DataPoints": [
+  "PointConfigurations": [
     {
       "PlcDeviceName": "PLC1",
       "GroupName": "温度",
@@ -119,6 +119,75 @@ var value = device.ReadInt16("40001");
 device.Write("00001", true);
 ```
 
+### 5. 自定义协议支持
+
+通过注入设备工厂函数，可以支持 HSL 库中的所有协议：
+
+```csharp
+using HslCommunication.Core.Device;
+using HslCommunication.Profinet.Siemens;
+
+// 自定义设备工厂
+Func<PlcDeviceConfiguration, IReadWriteDevice> deviceFactory = (config) =>
+{
+    // 例如：支持西门子 S7-1200
+    if (config.Protocol == "HSL:SiemensS71200")
+    {
+        return new SiemensS7Net(config.IPAddress, 102, SiemensPLCS.S1200);
+    }
+    // 可以添加更多协议支持...
+    return null;
+};
+
+// 创建 PLC 管理器时传入工厂函数
+var plcManager = new PlcManager(logger);
+
+// 或者使用 HslPlcDevice 直接创建
+var device = new HslPlcDevice(config, logger, deviceFactory);
+```
+
+继承PlcManager类，重写InitPLC方法，可以控制初始化的PLC协议，协议类需要继承IPlcDevice
+
+```csharp
+using HslCommunication.Core.Device;
+using HslCommunication.Profinet.Siemens;
+
+public class Motion : PlcManager
+{
+    public Motion(ILogger logger) : base(logger)
+    {
+        
+    }
+
+    //重写协议配置对应的规则
+    protected override void InitPLC(List<PlcDeviceConfiguration> configurations)
+    {
+        foreach (PlcDeviceConfiguration configuration in configurations)
+        {
+            if(configuration.Protocol == "HSL:ModbusTcp")
+            {
+                //自定义适配HSL所有支持的协议
+                ConfigurationDeviceMap.Add(configuration, new HslPlcDevice(configuration, null, configuration =>
+                {
+                    return new HslCommunication.Profinet.Siemens.SiemensS7Net(HslCommunication.Profinet.Siemens.SiemensPLCS.S1200, configuration.IPAddress);
+                }));
+            }
+            else
+            {
+                throw new Exception("Not support protocol");
+            }
+        }
+    }
+
+}
+```
+
+
+## 注意事项
+
+- 使用了HSL的包，该包需要授权使用，不授权的情况下仅供测试使用，具体授权方式和授权内容参考HSL官网
+- 如果不想使用HSL包，可以继承IPlcDevice接口，适配并通过继承PlcManager类，重写InitPLC方法即可
+
 ## 依赖项
 
 ```xml
@@ -133,3 +202,6 @@ device.Write("00001", true);
 ### 1.0.0.6
 
 - 修改配置文件节点DataPoints为PointConfigurations
+- 优化 PlcManager，增加初始化时自定义PLC协议的支持
+- 增加对所有 HSL 支持的协议的间接支持
+- 原生支持HSL中的ModBusTCP协议

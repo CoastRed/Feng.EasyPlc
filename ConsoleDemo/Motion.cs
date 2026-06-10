@@ -1,4 +1,5 @@
-﻿using Feng.EasyPlc.Models;
+﻿using Feng.EasyPlc.Contracts;
+using Feng.EasyPlc.Models;
 using Feng.EasyPlc.Protocol;
 using Feng.EasyPlc.Services;
 using NLog;
@@ -15,21 +16,18 @@ public class Motion : PlcManager
         
     }
 
-    protected override void InitPLC(List<PlcDeviceConfiguration> configurations)
+    protected override IPlcDevice InitPLC(PlcDeviceConfiguration configuration)
     {
-        foreach (PlcDeviceConfiguration configuration in configurations)
+        if (configuration.Protocol == "HSL:ModbusTcp")
         {
-            if(configuration.Protocol == "HSL:ModbusTcp")
+            return new HslPlcDevice(configuration, null, configuration =>
             {
-                ConfigurationDeviceMap.Add(configuration, new HslPlcDevice(configuration, null, configuration =>
-                {
-                    return new HslCommunication.Profinet.Siemens.SiemensS7Net(HslCommunication.Profinet.Siemens.SiemensPLCS.S1200, configuration.IPAddress);
-                }));
-            }
-            else
-            {
-                throw new Exception("Not support protocol");
-            }
+                return new HslCommunication.Profinet.Siemens.SiemensS7Net(HslCommunication.Profinet.Siemens.SiemensPLCS.S1200, configuration.IPAddress);
+            });
+        }
+        else
+        {
+            throw new Exception("Not support protocol");
         }
     }
 

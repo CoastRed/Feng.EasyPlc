@@ -1,6 +1,7 @@
 ﻿using ConsoleDemo;
 using Feng.EasyPlc.Services;
 using HslCommunication.Core.Device;
+using Microsoft.Extensions.DependencyInjection;
 using NLog;
 
 Console.WriteLine("Hello, World!");
@@ -9,6 +10,16 @@ ILogger logger = LogManager.GetCurrentClassLogger();
 
 //var r = plcManager.WriteInt16("设备初始化", 100);
 //Console.WriteLine(r);
+
+var container = new ServiceCollection();
+container.AddSingleton<ILogger>(logger);
+container.AddSingleton<PlcManager>();
+ServiceProvider sp = container.BuildServiceProvider(); 
+
+var plcManager = sp.GetRequiredService<PlcManager>();
+var r0 = plcManager.WriteInt16("设备初始化", 100);
+Console.WriteLine(r0);
+
 
 Motion motion = new Motion(logger);
 
