@@ -1,207 +1,186 @@
-# Feng.EasyPlc
+# CLAUDE.md
 
-用于 PLC（可编程逻辑控制器）通信的 .NET 类库，简化工业自动化设备的数据读写操作。
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 快速入门
+## 项目概述
 
-### 1. 安装包
+Feng.EasyPlc 是一个用于 PLC（可编程逻辑控制器）通信的 .NET 类库，简化工业自动化设备的数据读写操作。项目支持多目标框架（net8.0, net9.0, net10.0）。
 
+## 常用命令
+
+### 构建项目
 ```bash
-dotnet add package Feng.EasyPlc
+dotnet build
 ```
 
-### 2. 创建配置文件
+### 针对特定框架构建
+```bash
+dotnet build -f net8.0
+dotnet build -f net9.0
+dotnet build -f net10.0
+```
 
-在项目根目录创建 `PlcSystemConfiguration.json` 文件，并改为内容和复制到输出目录：
+### 打包 NuGet 包
+```bash
+dotnet pack
+```
 
-```json
+### 运行代码格式化
+```bash
+dotnet format
+```
+
+## 架构说明
+
+### 核心接口
+
+- **IPlcDevice** (`Contracts/IPlcDevice.cs`): PLC设备的核心接口，定义所有PLC通信操作（连接、读写、等待等）。所有方法都支持同步和异步版本，包括批量读写。
+- **IPlcDeviceManager** (`Services/IPlcDeviceManager.cs`): PLC管理器接口，定义设备管理和索引器访问模式。
+
+### 实现类
+
+项目有两种实现模式可供选择：
+
+#### 1. PlcManager（完整实现）
+`Services/PlcManager.cs` - 开箱即用的完整实现：
+- 所有方法为 `virtual`，可被继承重写
+- 通过 `InitPLC(PlcDeviceConfiguration)` 方法根据协议创建设备
+- 支持通过继承和重写 `InitPLC` 来扩展协议支持
+
+#### 2. PlcDeviceManager（抽象基类）
+`Services/PlcDeviceManager.cs` - 需要继承实现的抽象基类：
+- 提供通用功能实现
+- 抽象方法 `InitPLC(PlcDeviceConfiguration)` 要求子类实现设备初始化逻辑
+- 适用于需要完全自定义初始化流程的场景
+
+### 协议系统
+
+协议实现位于 `Protocols/` 目录：
+
+- **HslPlcDevice** (`Protocols/HslPlcDevice.cs`): 基于 HslCommunication 库的 PLC 设备实现，所有方法为 `virtual`
+  - 命名空间：`Feng.EasyPlc.Protocol`（单数）
+  - 支持通过构造函数注入 `deviceFactory` 来自定义设备创建
+  - `InitDevice()` 虚方法支持子类重写协议解析逻辑
+
+- **MockPlc** (`Protocols/MockPlc.cs`): 用于测试的模拟PLC
+
+协议字符串格式为 `"提供商:协议"`，例如 `"HSL:ModbusTcp"`。
+
+**扩展协议支持**：
+1. 继承 `PlcManager` 并重写 `InitPLC(PlcDeviceConfiguration)` 方法
+2. 或通过 `HslPlcDevice` 构造函数的 `deviceFactory` 参数注入自定义设备工厂
+3. 或继承 `HslPlcDevice` 并重写 `InitDevice()` 方法
+
+### 配置系统
+
+**PlcSystemConfiguration.json** 是项目的核心配置文件，定义三个主要部分：
+
+1. **DeviceConfigurations**: PLC设备配置列表（名称、IP、端口、协议、超时、是否启用、自定义属性）
+2. **PointConfigurations**: 数据点配置（将地址映射为可读名称）
+3. **AxisConfigurations**: 运动轴配置（轴号、当前位置地址、点动地址、原点回归地址、清除报警地址、自定义属性）
+
+配置文件会在构建时自动复制到输出目录。
+
+### 数据模型
+
+- **PlcDeviceConfiguration**: PLC设备配置，包含 `Properties` 字典用于扩展属性
+- **PlcPointConfiguration**: 数据点（名称到地址的映射），包含 `PlcDeviceName` 关联设备
+- **PlcAxisConfiguration**: 运动轴配置，包含 `Properties` 字典用于扩展属性
+- **PlcSystemConfiguration**: 系统配置根对象
+
+### 索引器访问模式
+
+PlcManager 提供了多种索引器访问方式，用于获取对应的 IPlcDevice 实例：
+
+```csharp
+// 通过设备名称
+IPlcDevice device = plcManager["设备名称"];
+
+// 通过数据点配置
+IPlcDevice device = plcManager[pointConfiguration];
+
+// 通过轴配置
+IPlcDevice device = plcManager[axisConfiguration];
+```
+
+### 依赖项
+
+- **HslCommunication** (12.3.0): 工业通信库，提供PLC协议实现（需要授权用于生产环境）
+- **NLog** (6.1.0): 日志记录
+- **Newtonsoft.Json**: JSON 配置反序列化
+
+## 操作模式
+
+### 数据读写
+
+支持两种访问方式：
+1. **通过名称**: `plcManager.ReadInt16("数据点名称")` - 使用预配置的 PointConfigurations
+2. **直接使用对象**: `plcManager.ReadInt16(pointConfiguration)` - 传入 PlcPointConfiguration 对象
+
+每种数据类型都有同步和异步版本，包括批量读写（如 `ReadInt16(address, length)`）。
+
+### Set-Reset 操作
+
+简化布尔值操作：
+- `Set/Reset`: 将数据点写入 1 或 0
+- `SetAsync/ResetAsync`: 异步版本
+
+### 运动轴控制
+
+通过轴配置简化运动控制：
+- `AxisJogPositive/AxisJogNegative/AxisJog`: 轴点动控制（支持按名称或轴号访问）
+- `GetAxisCurrentPosition`: 获取轴当前位置
+- `ClearAlarm`: 清除轴报警
+
+### 等待操作
+
+Wait 系列方法用于轮询等待指定地址值变为目标值：
+- `timeOut`: 超时时间（毫秒），-1 表示无限等待
+- `readInterval`: 轮询间隔（毫秒），默认 100ms
+- 异步版本支持 `CancellationToken`
+
+## 扩展性设计
+
+### 添加自定义协议
+
+**方法一：继承 PlcManager**
+```csharp
+public class MyPlcManager : PlcManager
 {
-  "DeviceConfigurations": [
+    protected override IPlcDevice InitPLC(PlcDeviceConfiguration configuration)
     {
-      "Name": "PLC1",
-      "IPAddress": "192.168.1.100",
-      "Port": 502,
-      "Protocol": "HSL:ModbusTcp",
-      "TimeOut": 1000,
-      "IsEnabled": true
+        if (configuration.Protocol == "Custom:MyProtocol")
+        {
+            return new MyCustomDevice(configuration, _logger);
+        }
+        return base.InitPLC(configuration);
     }
-  ],
-  "PointConfigurations": [
-    {
-      "PlcDeviceName": "PLC1",
-      "GroupName": "温度",
-      "Name": "传感器温度",
-      "Address": "40001"
-    },
-    {
-      "PlcDeviceName": "PLC1",
-      "GroupName": "状态",
-      "Name": "运行状态",
-      "Address": "00001"
-    }
-  ],
-  "AxisConfigurations": [
-    {
-      "PlcDeviceName": "PLC1",
-      "AxisNumber": 1,
-      "Name": "X轴",
-      "CurrentPositionAddress": "40100",
-      "JogAddress": "00010",
-      "OriginAddress": "00011",
-      "ClearAlarmAddress": "00012"
-    }
-  ]
 }
 ```
 
-### 3. 基础使用
-
+**方法二：使用设备工厂**
 ```csharp
-using Feng.EasyPlc.Services;
-using NLog;
-
-// 1. 创建 PLC 管理器
-var logger = LogManager.GetLogger("PLC");
-var plcManager = new PlcManager(logger);
-
-// 2. 连接所有设备
-var (success, error) = await plcManager.ConnectAsync();
-if (!success)
-{
-    Console.WriteLine($"连接失败: {error}");
-    return;
-}
-
-// 3. 读取数据
-// 通过配置的数据点名称读取
-var temperature = plcManager.ReadInt16("传感器温度");
-var isRunning = plcManager.ReadBool("运行状态");
-
-// 4. 写入数据
-plcManager.Write("运行状态", true);
-
-// 5. Set/Reset 操作（简化写入 1/0）
-plcManager.Set("运行状态");    // 写入 1
-plcManager.Reset("运行状态");  // 写入 0
-
-// 6. 等待操作
-// 等待地址值变为目标值，超时 5000ms
-var waitSuccess = await plcManager.WaitAsync("运行状态", true, 5000);
-
-// 7. 运动轴控制
-// 轴点动
-plcManager.AxisJogPositive("X轴");     // 正向点动
-plcManager.AxisJogNegative("X轴");     // 负向点动
-plcManager.AxisJog("X轴", 1);           // 自定义方向
-
-// 获取轴当前位置
-var position = plcManager.GetAxisCurrentPosition("X轴");
-
-// 清除报警
-plcManager.ClearAlarm("X轴");
-
-// 8. 断开连接
-await plcManager.DisconnectAsync();
-```
-
-### 4. 直接访问设备
-
-如果需要直接操作设备，可以通过索引器获取：
-
-```csharp
-// 通过设备名称获取设备
-var device = plcManager["PLC1"];
-
-// 直接读取地址
-var value = device.ReadInt16("40001");
-
-// 直接写入地址
-device.Write("00001", true);
-```
-
-### 5. 自定义协议支持
-
-通过注入设备工厂函数，可以支持 HSL 库中的所有协议：
-
-```csharp
-using HslCommunication.Core.Device;
-using HslCommunication.Profinet.Siemens;
-
-// 自定义设备工厂
 Func<PlcDeviceConfiguration, IReadWriteDevice> deviceFactory = (config) =>
 {
-    // 例如：支持西门子 S7-1200
     if (config.Protocol == "HSL:SiemensS71200")
     {
         return new SiemensS7Net(config.IPAddress, 102, SiemensPLCS.S1200);
     }
-    // 可以添加更多协议支持...
     return null;
 };
 
-// 创建 PLC 管理器时传入工厂函数
-var plcManager = new PlcManager(logger);
-
-// 或者使用 HslPlcDevice 直接创建
-var device = new HslPlcDevice(config, logger, deviceFactory);
+var device = new HslPlcDevice(configuration, logger, deviceFactory);
 ```
 
-继承PlcManager类，重写InitPLC方法，可以控制初始化的PLC协议，协议类需要继承IPlcDevice
+### 扩展方法
 
-```csharp
-using HslCommunication.Core.Device;
-using HslCommunication.Profinet.Siemens;
-
-public class Motion : PlcManager
-{
-    public Motion(ILogger logger) : base(logger)
-    {
-        
-    }
-
-    //重写协议配置对应的规则
-    protected override void InitPLC(List<PlcDeviceConfiguration> configurations)
-    {
-        foreach (PlcDeviceConfiguration configuration in configurations)
-        {
-            if(configuration.Protocol == "HSL:ModbusTcp")
-            {
-                //自定义适配HSL所有支持的协议
-                ConfigurationDeviceMap.Add(configuration, new HslPlcDevice(configuration, null, configuration =>
-                {
-                    return new HslCommunication.Profinet.Siemens.SiemensS7Net(HslCommunication.Profinet.Siemens.SiemensPLCS.S1200, configuration.IPAddress);
-                }));
-            }
-            else
-            {
-                throw new Exception("Not support protocol");
-            }
-        }
-    }
-
-}
-```
-
+项目支持通过扩展方法扩展 IPlcDevice 功能（见 `Extensions/PlcDeviceExtensions.cs`）。
 
 ## 注意事项
 
-- 使用了HSL的包，该包需要授权使用，不授权的情况下仅供测试使用，具体授权方式和授权内容参考HSL官网
-- 如果不想使用HSL包，可以继承IPlcDevice接口，适配并通过继承PlcManager类，重写InitPLC方法即可
-
-## 依赖项
-
-```xml
-<ItemGroup>
-    <PackageReference Include="HslCommunication" Version="12.3.0" />
-    <PackageReference Include="NLog" Version="6.1.0" />
-</ItemGroup>
-```
-
-## 版本说明
-
-### 1.0.0.6
-
-- 修改配置文件节点DataPoints为PointConfigurations
-- 优化 PlcManager，增加初始化时自定义PLC协议的支持
-- 增加对所有 HSL 支持的协议的间接支持
-- 原生支持HSL中的ModBusTCP协议
+- 项目使用中文错误日志
+- 通信失败时读写方法返回 null，写操作返回 false
+- HslCommunication 库需要授权用于生产环境
+- PlcManager 和 HslPlcDevice 的所有方法都是虚方法，可被继承重写
+- 协议字符串格式必须为 `"提供商:协议"`
+- 配置节名为 `PointConfigurations`（不是 DataPoints）
