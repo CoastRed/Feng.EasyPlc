@@ -28,7 +28,7 @@ public abstract class PlcDeviceManager: IPlcDeviceManager
     {
         _logger = logger;
         this.PlcSystemConfig = this.LoadPlcSystemConfiguration();
-        InitPLC();
+        Initialize(PlcDeviceConfigurations);
         
     }
 
@@ -36,7 +36,7 @@ public abstract class PlcDeviceManager: IPlcDeviceManager
     {
         _logger = logger;
         this.PlcSystemConfig = config ?? throw new ArgumentNullException(nameof(config));
-        InitPLC();
+        Initialize(PlcDeviceConfigurations);
     }
 
     public virtual PlcSystemConfiguration LoadPlcSystemConfiguration()
@@ -70,7 +70,14 @@ public abstract class PlcDeviceManager: IPlcDeviceManager
         return this.PlcAxisConfigurations.Single(s => s.AxisNumber == axisNumber) ?? throw new ArgumentNullException(nameof(axisNumber), $"AxisConfiguration with AxisNumber {axisNumber} not found.");
     }
 
+    public void Initialize(List<PlcDeviceConfiguration> configurations)
+    {
+        foreach (var configuration in configurations)
+        {
+            ConfigurationDeviceMap.Add(configuration, InitPLC(configuration));
+        }
+    }
 
-    public abstract void InitPLC();
+    public abstract IPlcDevice InitPLC(PlcDeviceConfiguration configuration);
 
 }

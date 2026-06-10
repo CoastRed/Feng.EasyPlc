@@ -27,5 +27,7 @@ public interface IPlcDeviceManager
     
     PlcSystemConfiguration LoadPlcSystemConfiguration();
 
-    void InitPLC();
+    void Initialize(List<PlcDeviceConfiguration> configurations);
+
+    IPlcDevice InitPLC(PlcDeviceConfiguration configuration);
 }

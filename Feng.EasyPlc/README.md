@@ -194,3 +194,7 @@ public class Motion : PlcManager
 - 优化 PlcManager，增加初始化时自定义PLC协议的支持
 - 增加对所有 HSL 支持的协议的间接支持
 - 原生支持HSL的ModBusTCP协议
+
+### 1.0.0.7
+
+- 优化 PlcManager
